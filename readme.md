@@ -5,6 +5,15 @@ Code for manipulating Solar Jet Hunter data sets
 Readme serves as an index of the code.
 Each subdirectory can have its own description internally if desired
 
+## Pre-exported data
+Some cutouts are already exported on Google Drive.
+You can find them in the following folder: [folder](https://drive.google.com/drive/u/0/folders/148ECOLP1esu2cSrFUGR53G1tvyKUd4BB)
+
+here's a file index:
+
+- `jh.tar`: a tarball of all JetHunter images exported by the download script (described below)
+- `jet_cutouts.asdf`: an [ASDF](https://github.com/asdf-format/asdf) file containing cutout pixel regions from the FITS files in `jh.tar`
+
 ## Requirements
 - Use a Python virtual environment via e.g. [uv](https://docs.astral.sh/uv/)
 - Install at least Python 3.13
@@ -46,7 +55,7 @@ They are observed at specific times.
 We use the timestamps on the images to tell [JSOC](https://docs.sunpy.org/en/stable/tutorial/acquiring_data/jsoc.html) which data to download.
 Currently only the $304 \AA$ channel is downloaded.
 
-A tarball of the files is also available on [Google Drive]() (TODO fix when uploaded).
+A tarball of the files is also available on [Google Drive](https://drive.google.com/file/d/1gqBWzjtAOG0eN_3ytKj7ogWQhaBasHcR/view?usp=sharing).
 
 ### `generate_cutouts.py`
 Combines the output `.asdf` file from `convert_regions.py` and cuts out

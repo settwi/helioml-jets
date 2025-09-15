@@ -6,7 +6,7 @@ import numpy as np
 import os
 import regions
 from sunpy.coordinates import SphericalScreen
-from sunpy import map
+from sunpy import map as smap
 
 """
 Given the Solar Jet Hunter data set which has been translated into a
@@ -26,22 +26,19 @@ However, having the raw pixels could also be useful for training the models.
 
 
 def main():
-    region_fn = 'jet-regions.asdf'
+    region_fn = "jet-regions.asdf"
     with asdf.open(region_fn) as af:
         # Slice out the data-only keys from the file
-        desired_keys = [k for k in af.keys() if k.startswith('sjh')]
+        desired_keys = [k for k in af.keys() if k.startswith("sjh")]
         all_regions = dict()
 
         for k in desired_keys:
             dat = af[k]
             all_regions[k] = {
-                'start_time': dat['start_time'],
-                'end_time': dat['end_time'],
-                'jet_times': dat['jet_times'],
-                'regions': [
-                    region_from_args(a)
-                    for a in dat['jet_regions']
-                ]
+                "start_time": dat["start_time"],
+                "end_time": dat["end_time"],
+                "jet_times": dat["jet_times"],
+                "regions": [region_from_args(a) for a in dat["jet_regions"]],
             }
 
     # Next, generate regions which we will use to export
@@ -53,39 +50,62 @@ def main():
 
     # Assume that the images exported by download_all_jethunter_images
     # are within the `data` directory
-    image_base_direc = 'data'
-    available_ids = os.listdir(image_base_direc)
+    image_base_direc = "data"
+    available_ids = list(sorted(os.listdir(image_base_direc)))
+
+    asdf_tree = dict()
     for id_ in available_ids:
         # Assume regions are ordered by time in the loaded data product
         # (they should be)
-        srt = np.argsort(all_regions[id_]['jet_times'])
+        srt = np.argsort(all_regions[id_]["jet_times"])
 
-        # For each event ID, separate out the region info
-        region_info = list(np.array(all_regions[id_]['regions'])[srt])
+        # For each event ID, separate out the bounding box info
+        bounding_box_info: list[regions.RectangleSkyRegion] = list(
+            np.array(all_regions[id_]["regions"])[srt]
+        )
+
         # Following default AIA image conventions, the file names
         # are lexicographically ordered by time.
-        files = os.listdir(f'{image_base_direc}/{id_}')
+        files = os.listdir(f"{image_base_direc}/{id_}")
         aia_fns = list(sorted(files))
 
-        maps: list[tuple[map.sources.sdo.AIAMap, regions.RectangleSkyRegion]] = list()
+        current_cutouts = cutout_params[id_]
+        # Each available ID gets a collection of cutouts and corresponding
+        # pixel regions.
+        cur_tree: dict[str, list] = {
+            "raw_cutouts": list(),
+            "scaled_cutouts": list(),
+            "region_corners": list(),
+        }
         for i in range(len(aia_fns)):
             # The AIA file names should sync with the region times,
             # by construction of this data set
-            fn = f'{image_base_direc}/{id_}/{aia_fns[i]}'
-            reg = region_info[i]
-            maps.append(
-                (map.Map(fn), reg)
-            )
+            fn = f"{image_base_direc}/{id_}/{aia_fns[i]}"
+            map_ = smap.Map(fn)
+            (left_corner, right_corner) = current_cutouts[i]
+            with SphericalScreen(center=map_.observer_coordinate):
+                # Submap the current image with the generated
+                # corners of the region
+                submap = map_.submap(bottom_left=left_corner, top_right=right_corner)
 
-        for ((left, right), (m, r)) in zip(cutout_params[id_], maps):
-            with SphericalScreen(center=m.observer_coordinate):
-                submap = m.submap(bottom_left=left, top_right=right)
-                px = r.to_pixel(wcs=submap)
-                norm = submap.plot_settings['norm']
-                
+                # The norm scales the data by human perception; might be more useful
+                # to the YOLO or other image recognition algorithms.
+                norm = submap.plot_settings["norm"]
                 # Export the data into an entry in the ASDF file
-                raw_dat = submap.data
-                scaled_dat = norm(raw_dat).data
+                cur_tree["raw_cutouts"].append(raw_dat := submap.data)
+                cur_tree["scaled_cutouts"].append(norm(raw_dat).data)
+
+                # Export the corners into pixel coordinates
+                box = bounding_box_info[i]
+                cur_tree["region_corners"].append(box.to_pixel(wcs=submap).corners)
+
+            # Insert this current chunk into the asdf file tree
+            asdf_tree[id_] = cur_tree
+            print('finished', id_)
+
+    output_file = asdf.AsdfFile(asdf_tree)
+    asdf_fn = "jet_cutouts.asdf"
+    output_file.write_to(asdf_fn, all_array_compression="bzp2")
 
 
 def region_from_args(cur_args: dict[str, object]) -> regions.RectangleSkyRegion:
@@ -172,5 +192,5 @@ def side_length_from_region(
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

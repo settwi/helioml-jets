@@ -20,7 +20,7 @@ here's a file index:
 ```bash
 source .venv/bin/activate
 # the `pip install` is one long line
-uv pip install astropy numpy scipy matplotlib asdf asdf-astropy sunpy[all] shapely git+https://github.com/settwi/astropy-regions.git@fix-wcs-helpers
+uv pip install astropy numpy scipy matplotlib asdf asdf-astropy sunpy[all] shapely jupyter ipynb ipywidgets pyqt6 pyside2 git+https://github.com/settwi/astropy-regions.git@fix-wcs-helpers
 ```
 
 **The solar jet hunter code is not in a package; you need to clone it manually**
@@ -32,6 +32,12 @@ ln -s SolarJetHunter_catalogue/utils .
 
 ## Data acquisition and preparation
 The `data-acquisition` subdirectory contains a few scripts.
+
+### `region-example.ipynb`
+Example of loading in the pre-prepared ASDF file from Google Drive and plotting the bounding boxes on top of
+the pixel data.
+
+There aren't any images included on the GitHub repo to keep file sizes small.
 
 ### `convert_regions.py`
 Converts the Solar Jet Hunter catalog into more standard [astropy regions](https://astropy-regions.readthedocs.io/en/stable/).

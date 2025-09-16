@@ -101,7 +101,7 @@ def main():
 
             # Insert this current chunk into the asdf file tree
             asdf_tree[id_] = cur_tree
-            print('finished', id_)
+            print("finished", id_)
 
     output_file = asdf.AsdfFile(asdf_tree)
     asdf_fn = "jet_cutouts.asdf"

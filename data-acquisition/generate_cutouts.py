@@ -15,7 +15,7 @@ generate a set of AIA cutout images.
 
 The data is exported to .asdf files.
 The jet cutouts are exported in both the default data number pixels,
-as well as pixel scaled by the default Sunpy 
+as well as pixel scaled by the default Sunpy matplotlib normalization.
 Each image (jet cutout) gets a pixel array.
 Each jet cutout is saved along with the pixel arrays.
 

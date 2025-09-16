@@ -7,12 +7,11 @@ Each subdirectory can have its own description internally if desired
 
 ## Pre-exported data
 Some cutouts are already exported on Google Drive.
-You can find them in the following folder: [folder](https://drive.google.com/drive/u/0/folders/148ECOLP1esu2cSrFUGR53G1tvyKUd4BB)
 
 here's a file index:
 
-- `jh.tar`: a tarball of all JetHunter images exported by the download script (described below)
-- `jet_cutouts.asdf`: an [ASDF](https://github.com/asdf-format/asdf) file containing cutout pixel regions from the FITS files in `jh.tar`
+- [`jh.tar`](https://drive.google.com/file/d/1gqBWzjtAOG0eN_3ytKj7ogWQhaBasHcR): a tarball of all JetHunter images exported by the download script (described below)
+- [`jet_cutouts.asdf`](https://drive.google.com/file/d/1iODDxvGyQPLlnr2iZ-4W9DrfGZ1m-miT): an [ASDF](https://github.com/asdf-format/asdf) file containing cutout pixel regions from the FITS files in `jh.tar`
 
 ## Requirements
 - Use a Python virtual environment via e.g. [uv](https://docs.astral.sh/uv/)
@@ -44,7 +43,7 @@ The jet hunter catalog may be acquired from the [UMN conservancy website](https:
 curl -L https://conservancy.umn.edu/bitstreams/539e27e6-20fb-47a7-b9c7-2b19af910120/download > jet_clusters.json
 ```
 
-The output is a `.asdf` file which encodes the region data.
+The output is an ASDF file which encodes the region data.
 
 ### `download_all_jethunter_images.py`
 Given the Jet Hunter catalog, download all of the jets

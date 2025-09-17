@@ -97,7 +97,7 @@ def main():
 
                 # Export the corners into pixel coordinates
                 box = bounding_box_info[i]
-                cur_tree["region_corners"].append(box.to_pixel(wcs=submap).corners)
+                cur_tree["region_corners"].append(box.to_pixel(wcs=submap.wcs).corners)
 
             # Insert this current chunk into the asdf file tree
             asdf_tree[id_] = cur_tree

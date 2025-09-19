@@ -51,7 +51,9 @@ def main():
         _ = Fido.fetch(query, path=(base_path / jet_id), max_conn=10)
 
 
-def verify_files(path: pathlib.Path, start: atime.Time, end: atime.Time, epsilon: u.s) -> bool:
+def verify_files(
+    path: pathlib.Path, start: atime.Time, end: atime.Time, epsilon: u.s
+) -> bool:
     """
     Given a directory full of AIA FITS images, ensure that the earliest and latest
     header observation times are within `epsilon` of `start` and `end`, respectively."""
@@ -62,15 +64,12 @@ def verify_files(path: pathlib.Path, start: atime.Time, end: atime.Time, epsilon
 
 def times_from_path(path: pathlib.Path) -> atime.Time:
     """Return an array of astropy times from a directory full of
-       AIA FITS files."""
+    AIA FITS files."""
     observation_times = list()
     for file in path.iterdir():
         with fits.open(file) as hdus:
-            observation_times.append(
-                hdus['COMPRESSED_IMAGE'].header['DATE-OBS']
-            )
+            observation_times.append(hdus["COMPRESSED_IMAGE"].header["DATE-OBS"])
     return atime.Time(observation_times)
-    
 
 
 if __name__ == "__main__":

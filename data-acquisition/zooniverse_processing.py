@@ -1,5 +1,8 @@
 from collections import namedtuple
+from dataclasses import dataclass, field
 import numpy as np
+import pandas as pd
+import json
 import regions
 
 # Required for helioprojective frame
@@ -9,6 +12,65 @@ from astropy import coordinates
 
 from astropy import wcs
 import astropy.units as u
+
+
+@dataclass
+class ZooniverseExtract:
+    bounding_boxes: list[dict[str, float]] = field(default_factory=list)
+    meta: dict[str, object] = field(default_factory=dict)
+
+    @u.quantity_input()
+    def bounding_corners_from_boxes(self) -> (u.arcsec, u.arcsec):
+        """Given Zooniverse box and metadata for a given sample,
+        extract the (lower left, upper right) corners in arcseconds of the minimum bounding box of the
+        volunteer boxes.
+        This is to be used with sunpy submaps for making new image crops."""
+        corners = list()
+        minx, miny, maxx, maxy = (np.inf, np.inf, -np.inf, -np.inf) << u.arcsec
+        for box in self.bounding_boxes:
+            corners = physical_corners_from_zooniverse(box, self.meta)
+            for c in corners:
+                minx = min(c[0], minx)
+                miny = min(c[1], miny)
+                maxx = max(c[0], maxx)
+                maxy = max(c[1], maxy)
+
+        lower_left = (minx, miny) << u.arcsec
+        upper_right = (maxx, maxy) << u.arcsec
+        return (lower_left, upper_right) << u.arcsec
+
+
+def load_zooniverse_csv(fn: str, cutoff_version: float) -> dict[int, ZooniverseExtract]:
+    """Load the Zooniverse CSV export into a dict for further processing."""
+    # Keep only the Zooniverse data we care about, and discard the rest
+    df = pd.read_csv(fn)
+
+    # Exclude beta testing by restricting the version here
+    cut = df["workflow_version"] >= cutoff_version
+    df = df[cut]
+    ret: dict[int, ZooniverseExtract] = dict()
+
+    for i in range(df.shape[0]):
+        row = df.iloc[i]
+        id_ = int(row["subject_ids"])
+        if id_ not in ret.keys():
+            ret[id_] = ZooniverseExtract()
+
+        # The annotations row contains information on the bounding rectangles
+        # contained in the current image set under investigation
+        boxes = extract_jethunter_annotations(json.loads(row["annotations"]))
+        ret[id_].bounding_boxes.extend(boxes)
+
+        # The metadata of the current subject contains things like time,
+        # image translation numbers, and FITS headers for physical coordinate conversion.
+        # But, each subject ID will be visited by many volunteers, so only save the metadata
+        # one time.
+        if len(ret[id_].meta.keys()) == 0:
+            ret[id_].meta = extract_jethunter_subject_data(
+                json.loads(row["subject_data"])
+            )
+
+    return ret
 
 
 def extract_jethunter_annotations(ann: dict[str, object]) -> list[dict[str, float]]:
@@ -22,16 +84,16 @@ def extract_jethunter_annotations(ann: dict[str, object]) -> list[dict[str, floa
         if not isinstance(values, list):
             continue
 
-        for (i, v) in enumerate(values):
+        for i, v in enumerate(values):
             # Only focus on the rectangle data entries
             if "Rectangle" in v["toolType"]:
-                ret.append(
-                    extract_bounding_box_params(values, i)
-                )
+                ret.append(extract_bounding_box_params(values, i))
     return ret
 
 
-def extract_bounding_box_params(responses: dict[str, object], rect_idx: int) -> dict[str, float]:
+def extract_bounding_box_params(
+    responses: dict[str, object], rect_idx: int
+) -> dict[str, float]:
     # Keys from the rectangle data entries we need to keep
     rect_keep = ("angle", "width", "height", "x_center", "y_center")
 
@@ -39,12 +101,14 @@ def extract_bounding_box_params(responses: dict[str, object], rect_idx: int) -> 
     rect_info = responses[rect_idx]
     # The base point at the start of the event and end of the event
     # are the two data piecces immediately before the rect
-    start, end = responses[rect_idx-2], responses[rect_idx-1]
+    start, end = responses[rect_idx - 2], responses[rect_idx - 1]
     ret = dict()
 
     # Time since the images started displaying where the event occurs first
-    ret["start_time_proportion"] = start['displayTime']
-    ret["end_time_proportion"] = end['displayTime']
+    ret["start_time_proportion"] = start["displayTime"]
+    ret["end_time_proportion"] = end["displayTime"]
+    # Time the user indicated the box is
+    ret["box_time_proportion"] = rect_info["displayTime"]
     # Slice out the rectangle info we want
     ret |= {k: rect_info[k] for k in rect_keep}
     return ret
@@ -94,7 +158,6 @@ def extract_jethunter_subject_data(
     assert len(keys := list(subject_data.keys())) == 1
     only_key = keys[0]
     sd = subject_data[only_key]
-
 
     # "fits_header": {k[1:]: sd[k] for k in fits_header_keys},
     fits_header = dict()
@@ -165,7 +228,27 @@ def zooniverse_coord_to_helioprojective(
     return system.pixel_to_world(*fits_coord) << u.arcsec
 
 
-JetHunterRegionTuple = namedtuple('JetHunterRegionTuple', ['region', 'time_window'])
+def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, object]):
+    """Given Zooniverse bounding box data and its associated metadata,
+    compute physical coordinates of the box corners in helioprojective coordinates
+    and return them."""
+    zoon_rect = regions.RectanglePixelRegion(
+        regions.PixCoord(box["x_center"], box["y_center"]),
+        width=box["width"],
+        height=box["height"],
+        angle=(np.pi - box["angle"] << u.deg),
+    )
+
+    # Convert these corners to physical coordinates
+    return tuple(
+        zooniverse_coord_to_helioprojective(meta, c << u.pixel)
+        for c in zoon_rect.corners
+    )
+
+
+JetHunterRegionTuple = namedtuple("JetHunterRegionTuple", ["region", "time_window"])
+
+
 def sky_region_from_zooniverse_rect(
     box: dict[str, float], meta: dict[str, object]
 ) -> JetHunterRegionTuple:
@@ -179,24 +262,13 @@ def sky_region_from_zooniverse_rect(
     ## Further comments
     Zooniverse uses the upper left corner of each image as the origin.
     The x coordinate increases to the right, and the y coordinate increases downwards.
-    The angle definition is here: https://github.com/zooniverse/front-end-monorepo/blob/beaf46fc9a6316c77f598f5d37f666a52870ea7a/packages/lib-classifier/src/plugins/drawingTools/models/marks/Mark/Mark.js#L58-L61
+    The angle definition is [here](https://github.com/zooniverse/front-end-monorepo/blob/beaf46fc9a6316c77f598f5d37f666a52870ea7a/packages/lib-classifier/src/plugins/drawingTools/models/marks/Mark/Mark.js#L58-L61).
     To convert from this left-handed coordinate system to the right-handed one,
     we just need to take the negative value of the angle.
     Zooniverse essentially measures the angle in the counter-clockwise sense from the
     left part of their x axis.
     """
-    zoon_rect = regions.RectanglePixelRegion(
-        regions.PixCoord(box["x_center"], box["y_center"]),
-        width=box["width"],
-        height=box["height"],
-        angle=(np.pi - box["angle"] << u.deg),
-    )
-
-    # Convert these corners to physical coordinates
-    c1, c2, c3, _ = tuple(
-        zooniverse_coord_to_helioprojective(meta, c << u.pixel)
-        for c in zoon_rect.corners
-    )
+    c1, c2, c3, _ = physical_corners_from_zooniverse(box, meta)
 
     """
     The corners of the `regions` rectangle are defined like this:
@@ -223,17 +295,22 @@ def sky_region_from_zooniverse_rect(
     end_shift = box["end_time_proportion"] * tdelta
     ta, tb = (ta + start_shift), (ta + end_shift)
 
-    # Set the observation time to the middle of this interval
-    obstime = ta + (ta - tb) / 2
+    # Set the observation time to the spot the box was created
+    dt = ta - tb
+    loc = box["box_time_proportion"]
+    obstime = ta + loc * dt
 
     return JetHunterRegionTuple(
         regions.RectangleSkyRegion(
             center=coordinates.SkyCoord(
-                *physical_center, frame="helioprojective", observer="earth", obstime=obstime
+                *physical_center,
+                frame="helioprojective",
+                observer="earth",
+                obstime=obstime,
             ),
             width=physical_width,
             height=physical_height,
-            angle=zoon_rect.angle,
+            angle=(np.pi - box["angle"] << u.deg),
         ),
-        atime.Time((ta, tb))
+        atime.Time((ta, tb)),
     )

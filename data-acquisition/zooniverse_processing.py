@@ -1,3 +1,4 @@
+from collections import namedtuple
 import numpy as np
 import regions
 
@@ -10,25 +11,42 @@ from astropy import wcs
 import astropy.units as u
 
 
-# TODO update this to export relative times along w/ rectangles
 def extract_jethunter_annotations(ann: dict[str, object]) -> list[dict[str, float]]:
     """From the `annotations` JSON data entry in a JetHunter export,
     extract the properties of the rectangles that we need to convert to physical coordinates."""
-    # Keys from the rectangle data entries we need to keep
-    rect_keep = ("angle", "width", "height", "x_center", "y_center")
-
     ret = list()
     for dat in ann:
         # Ignore anything in the annotation data
         # that doesn't have a list of outputs associated with it
-        if not isinstance(values := dat["value"], list):
+        values: list[dict[str, object]] = dat["value"]
+        if not isinstance(values, list):
             continue
 
-        for v in values:
+        for (i, v) in enumerate(values):
             # Only focus on the rectangle data entries
-            if "Rectangle" not in v["toolType"]:
-                continue
-            ret.append({k: v[k] for k in rect_keep})
+            if "Rectangle" in v["toolType"]:
+                ret.append(
+                    extract_bounding_box_params(values, i)
+                )
+    return ret
+
+
+def extract_bounding_box_params(responses: dict[str, object], rect_idx: int) -> dict[str, float]:
+    # Keys from the rectangle data entries we need to keep
+    rect_keep = ("angle", "width", "height", "x_center", "y_center")
+
+    # The current response is the one with the rectangle info
+    rect_info = responses[rect_idx]
+    # The base point at the start of the event and end of the event
+    # are the two data piecces immediately before the rect
+    start, end = responses[rect_idx-2], responses[rect_idx-1]
+    ret = dict()
+
+    # Time since the images started displaying where the event occurs first
+    ret["start_time_proportion"] = start['displayTime']
+    ret["end_time_proportion"] = end['displayTime']
+    # Slice out the rectangle info we want
+    ret |= {k: rect_info[k] for k in rect_keep}
     return ret
 
 
@@ -111,6 +129,8 @@ def zooniverse_coord_to_helioprojective(
 
     These are combined to transform the Zooniverse pixels to AIA pixels,
     then from AIA pixels to physical coordinates.
+
+    The extract data is defined [here](https://github.com/kekoalasko/Solar_Zooniverse_Processor/blob/853789e2cd00be82796d6a041b1dd74e039d2d89/solar/visual/img.py#L22-L36)
     """
     # Extract the corner coordinates of the solar sub-section of the Zooniverse image
     # (there are axes surrounding the AIA image)
@@ -145,9 +165,10 @@ def zooniverse_coord_to_helioprojective(
     return system.pixel_to_world(*fits_coord) << u.arcsec
 
 
+JetHunterRegionTuple = namedtuple('JetHunterRegionTuple', ['region', 'time_window'])
 def sky_region_from_zooniverse_rect(
     box: dict[str, float], meta: dict[str, object]
-) -> regions.RectangleSkyRegion:
+) -> JetHunterRegionTuple:
     """
     ## Definition
     Given a set of Zooniverse box data and its associated metadata,
@@ -168,7 +189,7 @@ def sky_region_from_zooniverse_rect(
         regions.PixCoord(box["x_center"], box["y_center"]),
         width=box["width"],
         height=box["height"],
-        angle=-(box["angle"] << u.deg),
+        angle=(np.pi - box["angle"] << u.deg),
     )
 
     # Convert these corners to physical coordinates
@@ -193,15 +214,26 @@ def sky_region_from_zooniverse_rect(
     physical_width = np.hypot(*(c2 - c1))
     physical_height = np.hypot(*(c3 - c2))
 
-    # Set the observation time to the middle of this interval
     ta, tb = atime.Time((meta["time"]["start_time"], meta["time"]["end_time"]))
+
+    tdelta = tb - ta
+    # The jet was only observed between the times
+    # specified in the metadata
+    start_shift = box["start_time_proportion"] * tdelta
+    end_shift = box["end_time_proportion"] * tdelta
+    ta, tb = (ta + start_shift), (ta + end_shift)
+
+    # Set the observation time to the middle of this interval
     obstime = ta + (ta - tb) / 2
 
-    return regions.RectangleSkyRegion(
-        center=coordinates.SkyCoord(
-            *physical_center, frame="helioprojective", observer="earth", obstime=obstime
+    return JetHunterRegionTuple(
+        regions.RectangleSkyRegion(
+            center=coordinates.SkyCoord(
+                *physical_center, frame="helioprojective", observer="earth", obstime=obstime
+            ),
+            width=physical_width,
+            height=physical_height,
+            angle=zoon_rect.angle,
         ),
-        width=physical_width,
-        height=physical_height,
-        angle=zoon_rect.angle,
+        atime.Time((ta, tb))
     )

@@ -1,17 +1,18 @@
+import json
+import pathlib
 from collections import namedtuple
 from dataclasses import dataclass, field
-import numpy as np
-import pandas as pd
-import json
-import regions
 
 # Required for helioprojective frame
 from sunpy import coordinates
-import astropy.time as atime
-from astropy import coordinates
 
-from astropy import wcs
+import astropy.time as atime
 import astropy.units as u
+import numpy as np
+import pandas as pd
+import regions
+from astropy import coordinates, wcs
+from astropy.io import fits
 
 
 @dataclass
@@ -24,7 +25,9 @@ class ZooniverseExtract:
         """Given Zooniverse box and metadata for a given sample,
         extract the (lower left, upper right) corners in arcseconds of the minimum bounding box of the
         volunteer boxes.
-        This is to be used with sunpy submaps for making new image crops."""
+        This is to be used with sunpy submaps for making new image crops.
+
+        The bounding corners are not rotated."""
         corners = list()
         minx, miny, maxx, maxy = (np.inf, np.inf, -np.inf, -np.inf) << u.arcsec
         for box in self.bounding_boxes:
@@ -314,3 +317,62 @@ def sky_region_from_zooniverse_rect(
         ),
         atime.Time((ta, tb)),
     )
+
+
+def reassociate_bounding_boxes(
+    meta: dict[str, object],
+    bounding_boxes: list[dict[str, float]],
+    root_path: pathlib.Path,
+) -> list[pathlib.Path]:
+    """
+    Re-associate bounding boxes with particular AIA files in a movie sequence.
+    A movie sequence is a sequence of image files, and some of those files have
+    bounding boxes drawn on them.
+
+    Custom cutouts may be made out of the movie sequence files assuming the FITS are
+    available for manipulation
+
+    Operates on: list of bounding boxes, set of metadata,
+    for a jet hunter event.
+    """
+
+    start, end = (
+        bounding_times := atime.Time(
+            (meta["time"]["start_time"], meta["time"]["end_time"])
+        )
+    )
+    # Assumes files are sorted in directories by year with default AIA naming convention
+    first_glob, second_glob = bounding_times.strftime(
+        "%Y/aia.lev1_euv_12s.%Y-%m-%dT%H%M*.fits"
+    )
+
+    p = pathlib.Path(root_path)
+    all_files = tuple(sorted((p / str(start.datetime.year)).iterdir()))
+
+    first_file = next(p.glob(first_glob))
+    last_file = tuple(p.glob(second_glob))[-1]
+
+    ai, bi = all_files.index(first_file), all_files.index(last_file)
+    file_slice = all_files[ai:bi]
+
+    times = list()
+    for file in file_slice:
+        with fits.open(file) as f:
+            times.append(atime.Time(f[1].header["DATE-OBS"]))
+
+    # The total movie duration in seconds
+    dt = (end - start).to(u.s)
+
+    box_files = list()
+    for bb in bounding_boxes:
+        box_time = start + (bb["box_time_proportion"] * dt)
+        min_comparison = float("inf")
+        best = None
+        for i, t in enumerate(times):
+            comp = (box_time - t).to_value(u.s)
+            if abs(comp) < min_comparison:
+                min_comparison = comp
+                best = file_slice[i]
+        box_files.append(best)
+
+    return box_files

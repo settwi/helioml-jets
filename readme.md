@@ -20,7 +20,7 @@ here's a file index:
 ```bash
 source .venv/bin/activate
 # the `pip install` is one long line
-uv pip install astropy numpy scipy matplotlib asdf asdf-astropy sunpy[all] shapely jupyter ipynb ipywidgets pyqt6 pyside2 git+https://github.com/settwi/astropy-regions.git@fix-wcs-helpers
+uv pip install astropy numpy scipy matplotlib asdf asdf-astropy sunpy[all] shapely jupyter ipynb ipywidgets pyqt6 pyside2 regions
 ```
 
 **The solar jet hunter code is not in a package; you need to clone it manually**
@@ -41,8 +41,6 @@ There aren't any images included on the GitHub repo to keep file sizes small.
 
 ### `convert_regions.py`
 Converts the Solar Jet Hunter catalog into more standard [astropy regions](https://astropy-regions.readthedocs.io/en/stable/).
-As of Sep 15 2025 there is a bug in `regions` because of how `numpy` and `astropy` handle units in new versions.
-A patch to the bug is in an open PR on [this branch](https://github.com/settwi/astropy-regions/tree/fix-wcs-helpers).
 
 The jet hunter catalog may be acquired from the [UMN conservancy website](https://conservancy.umn.edu/items/8df6939d-362c-4e65-bea8-eb5d21d330cb):
 ```bash

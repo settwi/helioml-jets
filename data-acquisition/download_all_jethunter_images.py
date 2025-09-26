@@ -1,12 +1,5 @@
 import astropy.units as u
-import astropy.coordinates as crd
-
-# Required import for helioprojective coordinate frame
-import regions
-
-import copy
 import asdf
-
 import sunpy.net.attrs as a
 from sunpy.net import Fido
 
@@ -64,18 +57,6 @@ def main():
         # Sort the files by jet event into different directories.
         # They will default to sorted by time.
         Fido.fetch(query, path=f"data/{id}/")
-
-
-def region_from_args(cur_args: dict[str, object]) -> regions.RectangleSkyRegion:
-    """From arguments loaded in from the exported ASDF file,
-    generate a `RectangleSkyRegion`"""
-    cur_args = copy.deepcopy(cur_args)
-    sky_args = cur_args["skycoord_kwargs"]
-    cent = sky_args.pop("center")
-    center = crd.SkyCoord(*cent, **sky_args)
-
-    region_args = cur_args["additional_region_kwargs"]
-    return regions.RectangleSkyRegion(center, **region_args)
 
 
 if __name__ == "__main__":

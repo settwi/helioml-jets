@@ -1,4 +1,5 @@
 from PIL import Image
+import regions
 from sunpy.coordinates import SphericalScreen
 import os
 from sunpy import map as smap
@@ -62,13 +63,25 @@ for id_, files in box_files.items():
             )
             px: RectanglePixelRegion = box.region.to_pixel(wcs=submap.wcs)
 
+            # Find an un-rotated minimum bounding box
+            corners = px.corners
+            minx, miny, maxx, maxy = np.inf, np.inf, -np.inf, -np.inf
+            for c in corners:
+                minx = min(c[0], minx)
+                miny = min(c[1], miny)
+                maxx = max(c[0], maxx)
+                maxy = max(c[1], maxy)
+            w = maxx - minx
+            h = maxy - miny
+            center = regions.PixCoord((minx + maxx) / 2, (miny + maxy) / 2)
+
             # Compute the width, height, center in
             # normalized formats that YOLO wants
             w, h = px.width, px.height
             npix_y, npix_x = submap.data.shape
             w = w / npix_x
             h = h / npix_y
-            c = px.center.xy / np.array((npix_x, npix_y))
+            c = center.xy / np.array((npix_x, npix_y))
 
             with open(f"labels/{i}.txt", "w") as f:
                 print("0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)

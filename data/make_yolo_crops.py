@@ -16,7 +16,7 @@ import zooniverse_processing as zp
 
 
 def save_yolo_img(a: np.ndarray, fn: str):
-    a = np.array(a / a.max() * 255, dtype=np.uint8)
+    # a = np.array(a / a.max() * 255, dtype=np.uint8)
     img = Image.fromarray(a)
     img.save(fn)
 
@@ -98,11 +98,22 @@ for id_ in keys:
         with open(f"labels/{base_fn}.txt", "w") as f:
             print(f"0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)
 
-        normalized = submap.plot_settings["norm"](submap.data)
         raw = submap.data
+        raw[raw < 0] = 0
+        normalized = submap.plot_settings["norm"](raw)
 
-        save_yolo_img(normalized, f"normalized_images/{base_fn}.png")
-        save_yolo_img(raw, f"raw_images/{base_fn}.png")
+        max_val = 2**16 - 1
+        save_yolo_img(
+            (max_val * normalized).astype(np.uint16),
+            f"normalized_images/{base_fn}.png",
+        )
+
+        # The raw data needs to get scaled
+        # appropriately; put it so that it is a
+        # linear brightness scale across [0, max val]
+        save_yolo_img(
+            (max_val * (raw / raw.max())).astype(np.uint16), f"raw_images/{base_fn}.png"
+        )
         box_id += 1
         print("done box", box_id)
 

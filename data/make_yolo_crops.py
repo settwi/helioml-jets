@@ -1,15 +1,18 @@
-from PIL import Image
-import regions
-from sunpy.coordinates import SphericalScreen
-import os
-from sunpy import map as smap
-from sunpy.map.sources.sdo import AIAMap
-import astropy.units as u
-import astropy.coordinates as acoord
-from regions import RectanglePixelRegion
-import zooniverse_processing as zp
 import json
+import os
+
+import astropy.coordinates as acoord
+import astropy.time as atime
+import astropy.units as u
 import numpy as np
+import regions
+from PIL import Image
+from regions import RectanglePixelRegion
+from sunpy import map as smap
+from sunpy.coordinates import SphericalScreen
+from sunpy.map.sources.sdo import AIAMap
+
+import zooniverse_processing as zp
 
 
 def save_yolo_img(a: np.ndarray, fn: str):
@@ -37,9 +40,8 @@ os.makedirs("raw_images", exist_ok=True)
 os.makedirs("normalized_images", exist_ok=True)
 os.makedirs("labels", exist_ok=True)
 
-i = 0
+jet_id = 0
 for id_, files in box_files.items():
-    print("start", i)
     pair = extracted[id_]
     # Lower left, upper right bounding corner of all boxes
     # in this Zooniverse event
@@ -53,6 +55,7 @@ for id_, files in box_files.items():
         zp.sky_region_from_zooniverse_rect(b, pair.meta) for b in pair.bounding_boxes
     ]
 
+    box_id = 0
     for box, aia_fn in zip(boxes, files):
         m: AIAMap = smap.Map(aia_fn)
         with SphericalScreen(center=m.observer_coordinate):
@@ -83,14 +86,20 @@ for id_, files in box_files.items():
             h = h / npix_y
             c = center.xy / np.array((npix_x, npix_y))
 
-            with open(f"labels/{i}.txt", "w") as f:
-                print("0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)
+            obst: atime.Time = submap.observer_coordinate.obstime
+            year = obst.strftime("%Y")
+            base_fn = f"{year}_{jet_id}_{box_id}"
+
+            with open(f"labels/{base_fn}.txt", "w") as f:
+                print(f"0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)
 
             normalized = submap.plot_settings["norm"](submap.data)
             raw = submap.data
 
-            save_yolo_img(normalized, f"normalized_images/{i}.png")
-            save_yolo_img(raw, f"raw_images/{i}.png")
+            save_yolo_img(normalized, f"normalized_images/{base_fn}.png")
+            save_yolo_img(raw, f"raw_images/{base_fn}.png")
+            box_id += 1
+            print("done box", box_id)
 
-            print("done", i)
-            i += 1
+        print("done jet", jet_id)
+        jet_id += 1

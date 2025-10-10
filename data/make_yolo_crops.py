@@ -40,8 +40,13 @@ os.makedirs("raw_images", exist_ok=True)
 os.makedirs("normalized_images", exist_ok=True)
 os.makedirs("labels", exist_ok=True)
 
+# Sort the jet IDs so we get reproducible results
+keys = list(box_files.keys())
+keys.sort()
+
 jet_id = 0
-for id_, files in box_files.items():
+for id_ in keys:
+    files = box_files[id_]
     pair = extracted[id_]
     # Lower left, upper right bounding corner of all boxes
     # in this Zooniverse event
@@ -66,40 +71,40 @@ for id_, files in box_files.items():
             )
             px: RectanglePixelRegion = box.region.to_pixel(wcs=submap.wcs)
 
-            # Find an un-rotated minimum bounding box
-            corners = px.corners
-            minx, miny, maxx, maxy = np.inf, np.inf, -np.inf, -np.inf
-            for c in corners:
-                minx = min(c[0], minx)
-                miny = min(c[1], miny)
-                maxx = max(c[0], maxx)
-                maxy = max(c[1], maxy)
-            w = maxx - minx
-            h = maxy - miny
-            center = regions.PixCoord((minx + maxx) / 2, (miny + maxy) / 2)
+        # Find an un-rotated minimum bounding box
+        corners = px.corners
+        minx, miny, maxx, maxy = np.inf, np.inf, -np.inf, -np.inf
+        for c in corners:
+            minx = min(c[0], minx)
+            miny = min(c[1], miny)
+            maxx = max(c[0], maxx)
+            maxy = max(c[1], maxy)
+        w = maxx - minx
+        h = maxy - miny
+        center = regions.PixCoord((minx + maxx) / 2, (miny + maxy) / 2)
 
-            # Compute the width, height, center in
-            # normalized formats that YOLO wants
-            w, h = px.width, px.height
-            npix_y, npix_x = submap.data.shape
-            w = w / npix_x
-            h = h / npix_y
-            c = center.xy / np.array((npix_x, npix_y))
+        # Compute the width, height, center in
+        # normalized formats that YOLO wants
+        w, h = px.width, px.height
+        npix_y, npix_x = submap.data.shape
+        w = w / npix_x
+        h = h / npix_y
+        c = center.xy / np.array((npix_x, npix_y))
 
-            obst: atime.Time = submap.observer_coordinate.obstime
-            year = obst.strftime("%Y")
-            base_fn = f"{year}_{jet_id}_{box_id}"
+        obst: atime.Time = submap.observer_coordinate.obstime
+        year = obst.strftime("%Y")
+        base_fn = f"{year}_{jet_id}_{box_id}"
 
-            with open(f"labels/{base_fn}.txt", "w") as f:
-                print(f"0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)
+        with open(f"labels/{base_fn}.txt", "w") as f:
+            print(f"0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)
 
-            normalized = submap.plot_settings["norm"](submap.data)
-            raw = submap.data
+        normalized = submap.plot_settings["norm"](submap.data)
+        raw = submap.data
 
-            save_yolo_img(normalized, f"normalized_images/{base_fn}.png")
-            save_yolo_img(raw, f"raw_images/{base_fn}.png")
-            box_id += 1
-            print("done box", box_id)
+        save_yolo_img(normalized, f"normalized_images/{base_fn}.png")
+        save_yolo_img(raw, f"raw_images/{base_fn}.png")
+        box_id += 1
+        print("done box", box_id)
 
-        print("done jet", jet_id)
-        jet_id += 1
+    print("done jet", jet_id)
+    jet_id += 1

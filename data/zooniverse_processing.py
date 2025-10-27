@@ -1,6 +1,5 @@
 import json
 import pathlib
-from collections import namedtuple
 from dataclasses import dataclass, field
 
 # Required for helioprojective frame
@@ -68,7 +67,7 @@ def load_zooniverse_csv(fn: str, cutoff_version: float) -> dict[int, ZooniverseE
         # image translation numbers, and FITS headers for physical coordinate conversion.
         # But, each subject ID will be visited by many volunteers, so only save the metadata
         # one time.
-        if len(ret[id_].meta.keys()) == 0:
+        if not ret[id_].meta:
             ret[id_].meta = extract_jethunter_subject_data(
                 json.loads(row["subject_data"])
             )
@@ -203,28 +202,45 @@ def zooniverse_coord_to_helioprojective(
     extract_data = metadata["image_extract_data"]
 
     # The lower left location of the subimage in the Zooniverse frame,
-    # in native pixels
+    # in Kekoa coordinate system
     lower_left = (
-        extract_data["width"] * extract_data["lower_left_x_prop"],
-        extract_data["height"] * (1 - extract_data["lower_left_y_prop"]),
+        (orig_width := extract_data["width"]) * extract_data["lower_left_x_prop"],
+        (orig_height := extract_data["height"]) * extract_data["lower_left_y_prop"],
     ) << u.pixel
 
     # The upper right location of the subimage in the Zooniverse frame,
-    # in native pixels
+    # in Kekoa coordinate system
     upper_right = (
-        extract_data["width"] * extract_data["upper_right_x_prop"],
-        extract_data["height"] * (1 - extract_data["upper_right_y_prop"]),
+        orig_width * extract_data["upper_right_x_prop"],
+        orig_height * extract_data["upper_right_y_prop"],
     ) << u.pixel
+
+    # The solar portion of the image in the entire Zooniverse image is
+    # limited by the parameters from the metadata
+    (zoon_img_width, zoon_img_height) = upper_right - lower_left
+
+    # Convert the raw coordinate to the one within the image bounds.
+    # The "Kekoa" system orients (0, 0) at the lower-left corner, but the
+    # Zooniverse system defines it at the upper-left corner of the image.
+    kekoa_coord = (
+        original_coordinate[0],
+        (orig_height << u.pix) - original_coordinate[1],
+    ) << u.pix
+    (image_x, image_y) = kekoa_coord - lower_left
 
     # The FITS file image dimensions are different than the Zooniverse images
     fits_header = metadata["fits_header"]
-    fits_width = fits_header["naxis1"] << u.pix
-    fits_height = fits_header["naxis2"] << u.pix
+    fits_width = fits_header["naxis1"] << u.pixel
+    fits_height = fits_header["naxis2"] << u.pixel
 
-    # Undo the transformation defined in Paloma Jol's masters thesis
-    fits_coord = ([fits_width, fits_height] << u.pix) * (
-        (original_coordinate - lower_left) / (upper_right - lower_left)
-    )
+    # Undo the transformation defined in Paloma Jol's masters thesis.
+    # The conversion between FITS and "solar" aka Zooniverse perceived
+    # widths occurs because of the difference in DPI of presented vs. science
+    # images.
+    fits_coord = (
+        image_x * (fits_width / zoon_img_width),
+        image_y * (fits_height / zoon_img_height),
+    ) << u.pixel
 
     # Construct a WCS system using the FITS header information
     system = wcs.WCS(header=fits_header)
@@ -239,6 +255,8 @@ def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, obje
         regions.PixCoord(box["x_center"], box["y_center"]),
         width=box["width"],
         height=box["height"],
+        # The angle definition from Zooniverse is phase shifted from what
+        # astropy regions expects.
         angle=(np.pi - box["angle"] << u.deg),
     )
 
@@ -249,12 +267,9 @@ def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, obje
     )
 
 
-JetHunterRegionTuple = namedtuple("JetHunterRegionTuple", ["region", "time_window"])
-
-
 def sky_region_from_zooniverse_rect(
     box: dict[str, float], meta: dict[str, object]
-) -> JetHunterRegionTuple:
+) -> regions.RectangleSkyRegion:
     """
     ## Definition
     Given a set of Zooniverse box data and its associated metadata,
@@ -291,31 +306,20 @@ def sky_region_from_zooniverse_rect(
 
     ta, tb = atime.Time((meta["time"]["start_time"], meta["time"]["end_time"]))
 
-    tdelta = tb - ta
-    # The jet was only observed between the times
-    # specified in the metadata
-    start_shift = box["start_time_proportion"] * tdelta
-    end_shift = box["end_time_proportion"] * tdelta
-    ta, tb = (ta + start_shift), (ta + end_shift)
-
-    # Set the observation time to the spot the box was created
-    dt = ta - tb
     loc = box["box_time_proportion"]
-    obstime = ta + loc * dt
+    tdelta = tb - ta
+    obstime = ta + loc * tdelta
 
-    return JetHunterRegionTuple(
-        regions.RectangleSkyRegion(
-            center=coordinates.SkyCoord(
-                *physical_center,
-                frame="helioprojective",
-                observer="earth",
-                obstime=obstime,
-            ),
-            width=physical_width,
-            height=physical_height,
-            angle=(np.pi - box["angle"] << u.deg),
+    return regions.RectangleSkyRegion(
+        center=coordinates.SkyCoord(
+            *physical_center,
+            frame="helioprojective",
+            observer="earth",
+            obstime=obstime,
         ),
-        atime.Time((ta, tb)),
+        width=physical_width,
+        height=physical_height,
+        angle=(np.pi - box["angle"] << u.deg),
     )
 
 
@@ -325,15 +329,16 @@ def reassociate_bounding_boxes(
     root_path: pathlib.Path,
 ) -> list[pathlib.Path]:
     """
-    Re-associate bounding boxes with particular AIA files in a movie sequence.
-    A movie sequence is a sequence of image files, and some of those files have
-    bounding boxes drawn on them.
+        Re-associate bounding boxes with particular AIA firegion.
+    region.les in a movie sequence.
+        A movie sequence is a sequence of image files, and some of those files have
+        bounding boxes drawn on them.
 
-    Custom cutouts may be made out of the movie sequence files assuming the FITS are
-    available for manipulation
+        Custom cutouts may be made out of the movie sequence files assuming the FITS are
+        available for manipulation
 
-    Operates on: list of bounding boxes, set of metadata,
-    for a jet hunter event.
+        Operates on: list of bounding boxes, set of metadata,
+        for a jet hunter event.
     """
 
     start, end = (

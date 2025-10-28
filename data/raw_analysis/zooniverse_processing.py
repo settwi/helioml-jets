@@ -69,8 +69,16 @@ def load_zooniverse_csv(fn: str, cutoff_version: float) -> dict[int, ZooniverseE
         # one time.
         if not ret[id_].meta:
             ret[id_].meta = extract_jethunter_subject_data(
-                json.loads(row["subject_data"])
+                sd := json.loads(row["subject_data"])
             )
+
+            # Also export the image names for frame-based time reconstruction.
+            # This is the only way to do it in the old version, but might be useful
+            # in the new version, too.
+            only_key = next(iter(sd))
+            sd = sd[only_key]
+            fns = [v for (k, v) in sd.items() if "file_name" in k]
+            ret[id_].meta['frame_filenames'] = fns
 
     return ret
 
@@ -85,34 +93,65 @@ def extract_jethunter_annotations(ann: dict[str, object]) -> list[dict[str, floa
         values: list[dict[str, object]] = dat["value"]
         if not isinstance(values, list):
             continue
+        ret.append(extract_bounding_box_params(values))
 
-        for i, v in enumerate(values):
-            # Only focus on the rectangle data entries
-            if "Rectangle" in v["toolType"]:
-                ret.append(extract_bounding_box_params(values, i))
     return ret
 
 
 def extract_bounding_box_params(
+    responses: dict[str, object]
+) -> dict[str, float]:
+    for i, v in enumerate(responses):
+        # Only focus on the rectangle data entries
+        if "toolType" in v:
+            # "New" version
+            if "Rectangle" in v["toolType"]:
+                return extract_bounding_box_params_new_version(responses, i)
+
+        if "tool"  in v:
+            # "Old" version
+            if v["tool"] == 2:
+                return extract_bounding_box_params_old_version(responses, i)
+
+
+def extract_bounding_box_params_old_version(
     responses: dict[str, object], rect_idx: int
 ) -> dict[str, float]:
-    # Keys from the rectangle data entries we need to keep
-    rect_keep = ("angle", "width", "height", "x_center", "y_center")
+    rect_keep = ("angle", "width", "height", "x", "y")
+    ret = {k: responses[rect_idx][k] for k in rect_keep}
 
-    # The current response is the one with the rectangle info
-    rect_info = responses[rect_idx]
     # The base point at the start of the event and end of the event
     # are the two data piecces immediately before the rect
     start, end = responses[rect_idx - 2], responses[rect_idx - 1]
-    ret = dict()
 
-    # Time since the images started displaying where the event occurs first
-    ret["start_time_proportion"] = start["displayTime"]
-    ret["end_time_proportion"] = end["displayTime"]
-    # Time the user indicated the box is
-    ret["box_time_proportion"] = rect_info["displayTime"]
-    # Slice out the rectangle info we want
-    ret |= {k: rect_info[k] for k in rect_keep}
+    # The jet was indicated to start/end at specific frames in each movie sequence.
+    # We can use the frames to pick out file names and thus times at which the events occurred.
+    ret["start_frame"] = start["frame"]
+    ret["end_frame"] = end["frame"]
+    # The user indicated that the box was brightest at this frame
+    ret["box_time_frame"] = responses[rect_idx]["frame"]
+    return ret
+
+
+def extract_bounding_box_params_new_version(
+    responses: dict[str, object], rect_idx: int
+) -> dict[str, float]:
+    rect_keep = ("angle", "width", "height", "x_center", "y_center")
+    ret = {k: responses[rect_idx][k] for k in rect_keep}
+
+    # The base point at the start of the event and end of the event
+    # are the two data piecces immediately before the rect
+    start, end = responses[rect_idx - 2], responses[rect_idx - 1]
+
+    # At some point, Zooniverse stopped reporting frames and switched to relative times (?)
+    try:
+        ret["start_frame"] = start["frame"]
+        ret["end_frame"] = end["frame"]
+        ret["box_time_frame"] = responses[rect_idx]["frame"]
+    except KeyError:
+        ret["start_time_proportion"] = start["displayTime"]
+        ret["end_time_proportion"] = end["displayTime"]
+        ret["box_time_proportion"] = responses[rect_idx]["displayTime"]
     return ret
 
 
@@ -161,23 +200,37 @@ def extract_jethunter_subject_data(
     only_key = keys[0]
     sd = subject_data[only_key]
 
-    # "fits_header": {k[1:]: sd[k] for k in fits_header_keys},
     fits_header = dict()
+    # New version is always like this
+    if all(k in sd for k in fits_header_keys):
+        extract_from = sd
+    # Sometimes, the old version only has this data contained in per-frame
+    # information clumps (???)
+    else:
+        # In the "real" FITS header, the hashtags are absent, so drop them
+        fits_header_keys = tuple(k[1:] for k in fits_header_keys)
+        # Take the first header and extract what we need
+        extract_from = json.loads(sd["#fits_header_0"])
+
     for k in fits_header_keys:
         try:
-            fits_header[k[1:]] = float(sd[k])
+            fits_header[k[1:]] = float(extract_from[k])
         except ValueError:
-            fits_header[k[1:]] = sd[k]
+            fits_header[k[1:]] = extract_from[k]
 
-    return {
+    ret = {
         "fits_header": fits_header,
         "image_extract_data": {
             img_extraction_keys[k]: float(sd[k]) for k in img_extraction_keys
         },
-        "time": {
-            k[1:]: sd[k].replace(" ", "T") + "Z" for k in ("#start_time", "#end_time")
-        },
     }
+
+    if "#start_time" in sd:
+        ret["time"] = {
+            k[1:]: sd[k].replace(" ", "T") + "Z" for k in ("#start_time", "#end_time")
+        }
+    
+    return ret
 
 
 @u.quantity_input()
@@ -323,6 +376,14 @@ def sky_region_from_zooniverse_rect(
     )
 
 
+def parse_aia_cutout_fn(fn: str) -> atime.Time:
+    _, _, ymd, hms, *_ = fn.split('_')
+    return atime.Time.strptime(
+        time_string=f'{ymd}-{hms}',
+        format_string='%Y%m%d-%H%M%S'
+    )
+
+
 def reassociate_bounding_boxes(
     meta: dict[str, object],
     bounding_boxes: list[dict[str, float]],
@@ -341,11 +402,20 @@ def reassociate_bounding_boxes(
         for a jet hunter event.
     """
 
-    start, end = (
-        bounding_times := atime.Time(
-            (meta["time"]["start_time"], meta["time"]["end_time"])
+    if "time" in meta:
+        # "New" version stores time information in metadata
+        start, end = (
+            bounding_times := atime.Time(
+                (meta["time"]["start_time"], meta["time"]["end_time"])
+            )
         )
-    )
+    else:
+        # "Old" version just stores the file names.
+        # We can get the time range via file names
+        (fns := meta["frame_filenames"]).sort()
+        start_fn, end_fn = fns[0], fns[-1]
+        start, end = parse_aia_cutout_fn(start_fn), parse_aia_cutout_fn(end_fn)
+
     # Assumes files are sorted in directories by year with default AIA naming convention
     first_glob, second_glob = bounding_times.strftime(
         "%Y/aia.lev1_euv_12s.%Y-%m-%dT%H%M*.fits"
@@ -370,7 +440,11 @@ def reassociate_bounding_boxes(
 
     box_files = list()
     for bb in bounding_boxes:
-        box_time = start + (bb["box_time_proportion"] * dt)
+        # Old version uses frames to dictate time
+        if 'box_time_frame' in bb:
+            box_time = parse_aia_cutout_fn(meta["frame_filenames"])
+        else:
+            box_time = start + (bb["box_time_proportion"] * dt)
         min_comparison = float("inf")
         best = None
         for i, t in enumerate(times):

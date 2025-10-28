@@ -37,6 +37,7 @@ def main():
             a.jsoc.Series.aia_lev1_euv_12s,
             a.jsoc.Notify(email),
             a.jsoc.Segment.image,
+            a.Sample(24 << u.s),
         )
 
         # Sort the files into folders by year

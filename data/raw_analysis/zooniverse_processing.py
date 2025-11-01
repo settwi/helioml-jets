@@ -2,9 +2,6 @@ import json
 import pathlib
 from dataclasses import dataclass, field
 
-# Required for helioprojective frame
-from sunpy import coordinates
-
 import astropy.time as atime
 import astropy.units as u
 import numpy as np
@@ -12,6 +9,9 @@ import pandas as pd
 import regions
 from astropy import coordinates, wcs
 from astropy.io import fits
+
+# Required for helioprojective frame
+from sunpy import coordinates
 
 
 @dataclass
@@ -78,7 +78,7 @@ def load_zooniverse_csv(fn: str, cutoff_version: float) -> dict[int, ZooniverseE
             only_key = next(iter(sd))
             sd = sd[only_key]
             fns = [v for (k, v) in sd.items() if "file_name" in k]
-            ret[id_].meta['frame_filenames'] = fns
+            ret[id_].meta["frame_filenames"] = fns
 
     return ret
 
@@ -98,9 +98,7 @@ def extract_jethunter_annotations(ann: dict[str, object]) -> list[dict[str, floa
     return ret
 
 
-def extract_bounding_box_params(
-    responses: dict[str, object]
-) -> dict[str, float]:
+def extract_bounding_box_params(responses: dict[str, object]) -> dict[str, float]:
     for i, v in enumerate(responses):
         # Only focus on the rectangle data entries
         if "toolType" in v:
@@ -108,7 +106,7 @@ def extract_bounding_box_params(
             if "Rectangle" in v["toolType"]:
                 return extract_bounding_box_params_new_version(responses, i)
 
-        if "tool"  in v:
+        if "tool" in v:
             # "Old" version
             if v["tool"] == 2:
                 return extract_bounding_box_params_old_version(responses, i)
@@ -207,10 +205,13 @@ def extract_jethunter_subject_data(
     # Sometimes, the old version only has this data contained in per-frame
     # information clumps (???)
     else:
-        # In the "real" FITS header, the hashtags are absent, so drop them
-        fits_header_keys = tuple(k[1:] for k in fits_header_keys)
-        # Take the first header and extract what we need
-        extract_from = json.loads(sd["#fits_header_0"])
+        # Take the first header and extract what we need,
+        # and put the hashtag back at the start of the keys to match
+        # the second version of the data set (wtf)
+        extract_from = {
+            f"#{k}": v
+            for (k, v) in json.loads(sd["#fits_header_0"]).items()
+        }
 
     for k in fits_header_keys:
         try:
@@ -229,7 +230,7 @@ def extract_jethunter_subject_data(
         ret["time"] = {
             k[1:]: sd[k].replace(" ", "T") + "Z" for k in ("#start_time", "#end_time")
         }
-    
+
     return ret
 
 
@@ -304,8 +305,13 @@ def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, obje
     """Given Zooniverse bounding box data and its associated metadata,
     compute physical coordinates of the box corners in helioprojective coordinates
     and return them."""
+    # Center position keys are different between Zooniverse versions.
+    # Go figure...
+    xk, yk = "x", "y"
+    if "x_center" in box:
+        xk, yk = "x_center", "y_center"
     zoon_rect = regions.RectanglePixelRegion(
-        regions.PixCoord(box["x_center"], box["y_center"]),
+        regions.PixCoord(box[xk], box[yk]),
         width=box["width"],
         height=box["height"],
         # The angle definition from Zooniverse is phase shifted from what
@@ -377,17 +383,17 @@ def sky_region_from_zooniverse_rect(
 
 
 def parse_aia_cutout_fn(fn: str) -> atime.Time:
-    _, _, ymd, hms, *_ = fn.split('_')
+    _, _, ymd, hms, *_ = fn.split("_")
     return atime.Time.strptime(
-        time_string=f'{ymd}-{hms}',
-        format_string='%Y%m%d-%H%M%S'
+        time_string=f"{ymd}-{hms}", format_string="%Y%m%d-%H%M%S"
     )
 
 
 def reassociate_bounding_boxes(
     meta: dict[str, object],
-    bounding_boxes: list[dict[str, float]],
+    bounding_boxes: list[dict[str, float | int]],
     root_path: pathlib.Path,
+    epsilon: u.Quantity,
 ) -> list[pathlib.Path]:
     """
         Re-associate bounding boxes with particular AIA firegion.
@@ -414,7 +420,11 @@ def reassociate_bounding_boxes(
         # We can get the time range via file names
         (fns := meta["frame_filenames"]).sort()
         start_fn, end_fn = fns[0], fns[-1]
-        start, end = parse_aia_cutout_fn(start_fn), parse_aia_cutout_fn(end_fn)
+        start, end = (
+            bounding_times := atime.Time(
+                (parse_aia_cutout_fn(start_fn), parse_aia_cutout_fn(end_fn))
+            )
+        )
 
     # Assumes files are sorted in directories by year with default AIA naming convention
     first_glob, second_glob = bounding_times.strftime(
@@ -438,11 +448,12 @@ def reassociate_bounding_boxes(
     # The total movie duration in seconds
     dt = (end - start).to(u.s)
 
+    epsilon = epsilon.to_value(u.s)
     box_files = list()
     for bb in bounding_boxes:
         # Old version uses frames to dictate time
-        if 'box_time_frame' in bb:
-            box_time = parse_aia_cutout_fn(meta["frame_filenames"])
+        if "box_time_frame" in bb:
+            box_time = parse_aia_cutout_fn(meta["frame_filenames"][bb["box_time_frame"]])
         else:
             box_time = start + (bb["box_time_proportion"] * dt)
         min_comparison = float("inf")
@@ -452,6 +463,10 @@ def reassociate_bounding_boxes(
             if abs(comp) < min_comparison:
                 min_comparison = comp
                 best = file_slice[i]
+        if min_comparison > epsilon:
+            raise ValueError(
+                f"Couldn't find image within {epsilon:.1f}s of requested time(s)"
+            )
         box_files.append(best)
 
     return box_files

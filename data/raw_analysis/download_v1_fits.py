@@ -25,7 +25,9 @@ def main():
 
     file_times = dict()
 
-    for id_, extract in data.items():
+    keys = sorted(data.keys())
+    for id_ in keys:
+        extract = data[id_]
         # Get the jet start, end bounding times using the AIA cutout file names
         files: list[str] = extract.meta["frame_filenames"]
         files.sort()

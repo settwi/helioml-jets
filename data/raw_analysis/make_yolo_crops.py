@@ -1,5 +1,5 @@
 import json
-import os
+import pathlib
 
 import astropy.coordinates as acoord
 import astropy.time as atime
@@ -19,6 +19,11 @@ def save_yolo_img(a: np.ndarray, fn: str):
     img.save(fn)
 
 
+def compute_resume_index(id_box_pairs: tuple[str]) -> int:
+    just_jet_ids = sorted(int(p.split("_")[0]) for p in id_box_pairs)
+    return max(just_jet_ids, default=0)
+
+
 if __name__ == "__main__":
     # Prerequesite: run bounding_box_table.py first
     table_fn = "box_table.json"
@@ -34,7 +39,7 @@ if __name__ == "__main__":
     # using panoptes CLI
     # cutoff_version = 50.63
     # extracted = zp.load_zooniverse_csv(
-        # "box-the-jets.csv", cutoff_version=cutoff_version
+    # "box-the-jets.csv", cutoff_version=cutoff_version
     # )
     # Exported with panoptes
     first_version_fn = "box-the-jets-first-version.csv"
@@ -43,15 +48,19 @@ if __name__ == "__main__":
         first_version_fn, cutoff_version=4.52
     )
 
-    os.makedirs("raw_images", exist_ok=True)
-    os.makedirs("normalized_images", exist_ok=True)
-    os.makedirs("labels", exist_ok=True)
+    label_path = pathlib.Path("labels")
+    label_path.mkdir(exist_ok=True)
+    norm_path = pathlib.Path("normalized_images")
+    norm_path.mkdir(exist_ok=True)
 
     # Sort the jet IDs so we get reproducible results
     keys = sorted(box_files.keys())
 
-    jet_id = 0
-    for id_ in keys:
+    completed = tuple("_".join(f.stem.split("_")[1:]) for f in label_path.iterdir())
+    start_id_index = compute_resume_index(completed)
+    print('starting at id', start_id_index)
+    jet_id = start_id_index
+    for id_ in keys[start_id_index:]:
         files = box_files[id_]
         pair = extracted[id_]
         # Lower left, upper right bounding corner of all boxes
@@ -76,7 +85,11 @@ if __name__ == "__main__":
                     width=width,
                     height=height,
                 )
-                px: RectanglePixelRegion = box.region.to_pixel(wcs=submap.wcs)
+                px: RectanglePixelRegion = box.to_pixel(wcs=submap.wcs)
+
+            obst: atime.Time = submap.observer_coordinate.obstime
+            year = obst.strftime("%Y")
+            base_fn = f"{year}_{jet_id}_{box_id}"
 
             # Find an un-rotated minimum bounding box
             corners = px.corners
@@ -98,11 +111,7 @@ if __name__ == "__main__":
             h = h / npix_y
             c = center.xy / np.array((npix_x, npix_y))
 
-            obst: atime.Time = submap.observer_coordinate.obstime
-            year = obst.strftime("%Y")
-            base_fn = f"{year}_{jet_id}_{box_id}"
-
-            with open(f"labels/{base_fn}.txt", "w") as f:
+            with open(label_path / f"{base_fn}.txt", "w") as f:
                 print(f"0 {c[0]:.5f} {c[1]:.5f} {w:.5f} {h:.5f}", file=f)
 
             raw = submap.data
@@ -112,18 +121,10 @@ if __name__ == "__main__":
             max_val = 2**16 - 1
             save_yolo_img(
                 (max_val * normalized).astype(np.uint16),
-                f"normalized_images/{base_fn}.png",
+                norm_path / f"{base_fn}.png",
             )
-
-            # The raw data needs to get scaled
-            # appropriately; put it so that it is a
-            # linear brightness scale across [0, max val]
-            save_yolo_img(
-                (max_val * (raw / raw.max())).astype(np.uint16),
-                f"raw_images/{base_fn}.png",
-            )
-            box_id += 1
             print("done box", box_id)
+            box_id += 1
 
         print("done jet", jet_id)
         jet_id += 1

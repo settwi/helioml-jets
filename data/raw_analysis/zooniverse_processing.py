@@ -2,6 +2,9 @@ import json
 import pathlib
 from dataclasses import dataclass, field
 
+# Required for helioprojective frame
+from sunpy import coordinates
+
 import astropy.time as atime
 import astropy.units as u
 import numpy as np
@@ -9,9 +12,6 @@ import pandas as pd
 import regions
 from astropy import coordinates, wcs
 from astropy.io import fits
-
-# Required for helioprojective frame
-from sunpy import coordinates
 
 
 @dataclass
@@ -363,11 +363,16 @@ def sky_region_from_zooniverse_rect(
     physical_width = np.hypot(*(c2 - c1))
     physical_height = np.hypot(*(c3 - c2))
 
-    ta, tb = atime.Time((meta["time"]["start_time"], meta["time"]["end_time"]))
-
-    loc = box["box_time_proportion"]
-    tdelta = tb - ta
-    obstime = ta + loc * tdelta
+    if "time" in meta:
+        ta, tb = atime.Time((meta["time"]["start_time"], meta["time"]["end_time"]))
+        loc = box["box_time_proportion"]
+        tdelta = tb - ta
+        obstime = ta + loc * tdelta
+    else:
+        # We're on V1
+        fns = meta["frame_filenames"]
+        idx = box["box_time_frame"]
+        obstime = parse_aia_cutout_fn(fns[idx])
 
     return regions.RectangleSkyRegion(
         center=coordinates.SkyCoord(

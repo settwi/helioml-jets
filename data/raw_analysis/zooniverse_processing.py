@@ -401,8 +401,7 @@ def reassociate_bounding_boxes(
     epsilon: u.Quantity,
 ) -> list[pathlib.Path]:
     """
-        Re-associate bounding boxes with particular AIA firegion.
-    region.les in a movie sequence.
+        Re-associate bounding boxes with particular AIA files in a movie sequence.
         A movie sequence is a sequence of image files, and some of those files have
         bounding boxes drawn on them.
 

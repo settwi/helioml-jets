@@ -314,6 +314,7 @@ def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, obje
         # We only have one of the corners defined (upper left?)
         # so we need to "cast" it to the center.
         # This follows the convention from https://github.com/kapsiak/Solar_Zooniverse_Processor/blob/ff006354819e62b586a272a676d2f74479ec66b1/solar/zooniverse/zimport.py#L155-L157
+        # The old Zooniverse front end has the box defined from a corner: https://github.com/zooniverse/Panoptes-Front-End/blob/bd99eb6bdcc999ddeca73c7335f904c7e1be69dd/app/classifier/drawing-tools/rotate-rectangle.jsx#L84-L87
         left_x, left_y = box["x"], box["y"]
         w, h = box["width"], box["height"]
         center = regions.PixCoord(

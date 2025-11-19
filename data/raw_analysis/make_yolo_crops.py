@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     completed = tuple("_".join(f.stem.split("_")[1:]) for f in label_path.iterdir())
     start_id_index = compute_resume_index(completed)
-    print('starting at id', start_id_index)
+    print("starting at id", start_id_index)
     jet_id = start_id_index
     for id_ in keys[start_id_index:]:
         files = box_files[id_]

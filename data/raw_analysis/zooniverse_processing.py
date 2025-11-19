@@ -209,8 +209,7 @@ def extract_jethunter_subject_data(
         # and put the hashtag back at the start of the keys to match
         # the second version of the data set (wtf)
         extract_from = {
-            f"#{k}": v
-            for (k, v) in json.loads(sd["#fits_header_0"]).items()
+            f"#{k}": v for (k, v) in json.loads(sd["#fits_header_0"]).items()
         }
 
     for k in fits_header_keys:
@@ -318,8 +317,8 @@ def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, obje
         left_x, left_y = box["x"], box["y"]
         w, h = box["width"], box["height"]
         center = regions.PixCoord(
-            left_x + w/2,
-            left_y + h/2,
+            left_x + w / 2,
+            left_y + h / 2,
         )
 
     zoon_rect = regions.RectanglePixelRegion(
@@ -413,15 +412,15 @@ def reassociate_bounding_boxes(
     epsilon: u.Quantity,
 ) -> list[pathlib.Path]:
     """
-        Re-associate bounding boxes with particular AIA files in a movie sequence.
-        A movie sequence is a sequence of image files, and some of those files have
-        bounding boxes drawn on them.
+    Re-associate bounding boxes with particular AIA files in a movie sequence.
+    A movie sequence is a sequence of image files, and some of those files have
+    bounding boxes drawn on them.
 
-        Custom cutouts may be made out of the movie sequence files assuming the FITS are
-        available for manipulation
+    Custom cutouts may be made out of the movie sequence files assuming the FITS are
+    available for manipulation
 
-        Operates on: list of bounding boxes, set of metadata,
-        for a jet hunter event.
+    Operates on: list of bounding boxes, set of metadata,
+    for a jet hunter event.
     """
 
     if "time" in meta:
@@ -469,7 +468,9 @@ def reassociate_bounding_boxes(
     for bb in bounding_boxes:
         # Old version uses frames to dictate time
         if "box_time_frame" in bb:
-            box_time = parse_aia_cutout_fn(meta["frame_filenames"][bb["box_time_frame"]])
+            box_time = parse_aia_cutout_fn(
+                meta["frame_filenames"][bb["box_time_frame"]]
+            )
         else:
             box_time = start + (bb["box_time_proportion"] * dt)
         min_comparison = float("inf")

@@ -215,3 +215,4 @@ SolarJet*
 *.FITS
 utils
 jet_clusters.json
+.vscode

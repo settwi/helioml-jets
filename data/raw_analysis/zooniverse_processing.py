@@ -307,16 +307,27 @@ def physical_corners_from_zooniverse(box: dict[str, float], meta: dict[str, obje
     and return them."""
     # Center position keys are different between Zooniverse versions.
     # Go figure...
-    xk, yk = "x", "y"
     if "x_center" in box:
         xk, yk = "x_center", "y_center"
+        center = regions.PixCoord(box[xk], box[yk])
+    else:
+        # We only have one of the corners defined (upper left?)
+        # so we need to "cast" it to the center.
+        # This follows the convention from https://github.com/kapsiak/Solar_Zooniverse_Processor/blob/ff006354819e62b586a272a676d2f74479ec66b1/solar/zooniverse/zimport.py#L155-L157
+        left_x, left_y = box["x"], box["y"]
+        w, h = box["width"], box["height"]
+        center = regions.PixCoord(
+            left_x + w/2,
+            left_y + h/2,
+        )
+
     zoon_rect = regions.RectanglePixelRegion(
-        regions.PixCoord(box[xk], box[yk]),
+        center,
         width=box["width"],
         height=box["height"],
         # The angle definition from Zooniverse is phase shifted from what
         # astropy regions expects.
-        angle=(np.pi - box["angle"] << u.deg),
+        angle=(np.pi - (box["angle"] << u.deg).to_value(u.rad)) << u.rad,
     )
 
     # Convert these corners to physical coordinates

@@ -7,11 +7,13 @@ from utils import Jet_class_light as jcl
 
 # We want to restrict the jet centers to be out side of
 # at least some portion of the solar angular radius
-radius_restriction = 0.99
+radius_restriction = 0.98
 
-# For AIA, the angular radius is about 0.25 degrees,
-# but we can just calculate it here to be accurate
-angular_radius = np.arctan(scon.radius / (1 << u.au)) << u.arcsec
+# The Earth-Sun distance changes some over the year;
+# give the most stringent 99% bound on the perceived solar radius
+distance_bounds = (0.983, 1.017) << u.au
+angular_bounds = np.arctan(scon.radius / distance_bounds) << u.arcsec
+angular_radius = (radius_restriction * angular_bounds).min()
 
 data_file = "catalog.json"
 clusters: list[jcl.JetCluster] = jcl.json_import_list(data_file)
@@ -24,9 +26,7 @@ for cl in clusters:
         )
         c1, _, c3, _ = box.corners()
         center = (c1 + c3) / 2
-        center_almost_off_limb = np.hypot(*center) >= (
-            radius_restriction * angular_radius
-        )
+        center_almost_off_limb = np.hypot(*center) >= angular_radius
         if center_almost_off_limb:
             unique_ids.add(cl.ID)
 

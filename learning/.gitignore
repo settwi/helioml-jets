@@ -1,0 +1,6 @@
+*.txt
+*.png
+# YOLO models
+*.pt
+# Ultralytics helper files
+*.cache

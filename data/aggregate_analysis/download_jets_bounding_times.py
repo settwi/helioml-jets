@@ -31,7 +31,7 @@ def main():
         if not jet_id.startswith("sjh"):
             continue
 
-        skip = verify_files(base_path / jet_id, af["start_time"], af["end_time"])
+        skip = verify_files(base_path / jet_id, af[jet_id]["start_time"], af[jet_id]["end_time"], 12)
         if skip:
             print("skipping", jet_id, "as we have all files")
             continue
@@ -57,7 +57,10 @@ def verify_files(
     """
     Given a directory full of AIA FITS images, ensure that the earliest and latest
     header observation times are within `epsilon` of `start` and `end`, respectively."""
-    times = times_from_path(path)
+    try:
+        times = times_from_path(path)
+    except FileNotFoundError:
+        return False
     times = times.sort()
     return ((times[0] - start) <= epsilon) and ((times[-1] - end) <= epsilon)
 

@@ -19,8 +19,10 @@ class ZooniverseExtract:
     bounding_boxes: list[dict[str, float]] = field(default_factory=list)
     meta: dict[str, object] = field(default_factory=dict)
 
-    @u.quantity_input()
-    def bounding_corners_from_boxes(self) -> (u.arcsec, u.arcsec):
+    @u.quantity_input
+    def bounding_corners_from_boxes(
+        self, padding: u.arcsec = (0 << u.arcsec)
+    ) -> (u.arcsec, u.arcsec):
         """Given Zooniverse box and metadata for a given sample,
         extract the (lower left, upper right) corners in arcseconds of the minimum bounding box of the
         volunteer boxes.
@@ -37,8 +39,8 @@ class ZooniverseExtract:
                 maxx = max(c[0], maxx)
                 maxy = max(c[1], maxy)
 
-        lower_left = (minx, miny) << u.arcsec
-        upper_right = (maxx, maxy) << u.arcsec
+        lower_left = (minx - padding, miny - padding) << u.arcsec
+        upper_right = (maxx + padding, maxy + padding) << u.arcsec
         return (lower_left, upper_right) << u.arcsec
 
 

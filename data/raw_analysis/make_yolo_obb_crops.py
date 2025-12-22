@@ -89,14 +89,11 @@ if __name__ == "__main__":
                 # Compute the width, height, center in
                 # normalized formats that YOLO wants
                 npix_y, npix_x = submap.data.shape
-                normalized_corners = [
-                    (x / npix_x, y / npix_y)
-                    for (x, y) in px.corners
-                ]
+                normalized_corners = [(x / npix_x, y / npix_y) for (x, y) in px.corners]
 
                 with open(label_path / f"{base_fn}.txt", "w") as f:
                     print("0", file=f, end=" ")
-                    for (x, y) in normalized_corners:
+                    for x, y in normalized_corners:
                         print(f"{x:.4f} {y:.4f}", end=" ", file=f)
                     print(file=f)
 

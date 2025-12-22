@@ -1,0 +1,10 @@
+*.txt
+*.png
+# YOLO models
+*.pt
+# Ultralytics helper files
+*.cache
+
+*.mp4
+
+val_test.ipynb

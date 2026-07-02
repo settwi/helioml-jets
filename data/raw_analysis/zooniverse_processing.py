@@ -396,7 +396,7 @@ def sky_region_from_zooniverse_rect(
         ),
         width=physical_width,
         height=physical_height,
-        angle=(np.pi - box["angle"] << u.deg),
+        angle=(box["angle"] << u.deg),
     )
 
 

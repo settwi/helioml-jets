@@ -19,8 +19,7 @@ here's a file index:
 - Use pip to install dependencies:
 ```bash
 source .venv/bin/activate
-# the `pip install` is one long line
-uv pip install astropy numpy scipy matplotlib asdf asdf-astropy sunpy[all] shapely jupyter ipynb ipywidgets pyqt6 pyside2 regions
+uv pip install -r requirements.txt
 ```
 
 **The solar jet hunter code is not in a package; you need to clone it manually**

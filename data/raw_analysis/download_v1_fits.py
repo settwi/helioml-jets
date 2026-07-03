@@ -17,7 +17,7 @@ def main():
         raise ValueError("Specify the directory to save data into via argv")
 
     # Exported with panoptes
-    first_version_fn = "box-the-jets-first-version.csv"
+    first_version_fn = "box-the-jets-first-version.csv.gz"
     # V4.52 is "production"
     data: dict[int, zp.ZooniverseExtract] = zp.load_zooniverse_csv(
         first_version_fn, cutoff_version=4.52
@@ -78,7 +78,12 @@ def verify_times_exist(
 
 def times_from_path(path: pathlib.Path) -> list[datetime.datetime]:
     """Return an array of astropy times from a directory full of
-    AIA FITS files."""
+    AIA FITS files.
+
+    Side effect: if the path doesn't exist, it's created."""
+    if not path.exists():
+        path.mkdir()
+        return list()
     observation_times = list()
     for file in path.iterdir():
         try:
